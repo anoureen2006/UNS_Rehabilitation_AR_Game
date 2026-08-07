@@ -1,0 +1,11 @@
+Model Information:
+* title:	Charizard 006 SV
+* source:	https://sketchfab.com/3d-models/charizard-006-sv-661ea62da9b5405fb5b01407dd88bc47
+* author:	jimmyho905 (https://sketchfab.com/jimmyho905)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Charizard 006 SV" (https://sketchfab.com/3d-models/charizard-006-sv-661ea62da9b5405fb5b01407dd88bc47) by jimmyho905 (https://sketchfab.com/jimmyho905) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
