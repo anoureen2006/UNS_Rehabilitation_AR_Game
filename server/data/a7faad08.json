@@ -1,0 +1,23 @@
+{
+  "session_id": "a7faad08",
+  "patient_id": "demo01",
+  "neglect_side": "left",
+  "exercise_mode": "bird_chase",
+  "created_at": 1786308947.025114,
+  "trials": [
+    {
+      "timestamp": 1786308950.4795148,
+      "hit": false,
+      "reaction_time_ms": 0.0,
+      "gaze_angle_deg": 0.0,
+      "hemifield": "non_neglected",
+      "difficulty_at_trial": {
+        "speed": 0.5,
+        "eccentricity_deg": 20.0,
+        "distance_m": 1.5,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    }
+  ]
+}
