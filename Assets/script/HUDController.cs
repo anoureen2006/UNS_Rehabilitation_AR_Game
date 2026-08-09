@@ -1,17 +1,17 @@
 using UnityEngine;
-using UnityEngine.UI;
+using TMPro;
 
 /// <summary>
-/// Minimal debug/demo HUD. Attach to a Canvas and assign the Text fields
-/// (regular UI.Text is fine for Day 1 -- swap to TextMeshPro later if you
-/// want nicer fonts, the logic doesn't change).
+/// Minimal debug/demo HUD. Attach to a Canvas and assign the TextMeshPro
+/// fields below by dragging each corresponding TextMeshProUGUI object from
+/// the Hierarchy.
 /// </summary>
 public class HUDController : MonoBehaviour
 {
-    [SerializeField] private Text statusText;
-    [SerializeField] private Text difficultyText;
-    [SerializeField] private Text lastResultText;
-    [SerializeField] private Text starProgressText; // only used in star_collect mode, leave unassigned for bird_chase-only builds
+    [SerializeField] private TextMeshProUGUI statusText;
+    [SerializeField] private TextMeshProUGUI difficultyText;
+    [SerializeField] private TextMeshProUGUI lastResultText;
+    [SerializeField] private TextMeshProUGUI starProgressText; // only used in star_collect mode, leave unassigned for bird_chase-only builds
 
     public void SetStarProgress(int collected, int total)
     {

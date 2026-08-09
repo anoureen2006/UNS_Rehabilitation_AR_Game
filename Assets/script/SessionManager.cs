@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
@@ -29,6 +30,10 @@ public class SessionManager : MonoBehaviour
     [SerializeField] private HUDController hud;
     [SerializeField] private StarCollectRoundController starRoundController; // only used when exerciseMode == "star_collect"
 
+    [Header("AR refs")]
+    [Tooltip("Drag the ARAnchorManager component (usually lives on the XR Origin GameObject) here. Required -- anchors must be created through the manager, never via AddComponent<ARAnchor>().")]
+    [SerializeField] private ARAnchorManager anchorManager;
+
     [Header("Anchor health")]
     [Tooltip("How often to check the current anchor's tracking state, in seconds. Doesn't need to be every frame.")]
     [SerializeField] private float anchorHealthCheckIntervalS = 0.5f;
@@ -43,8 +48,18 @@ public class SessionManager : MonoBehaviour
     private Coroutine _timeoutRoutine;
     private Coroutine _anchorHealthRoutine;
 
+    // Guards against a stale/in-flight spawn finishing after a newer one
+    // has already started (e.g. anchor-lost fires right as a trial resolves).
+    private int _spawnRequestId;
+
     private void Start()
     {
+        if (anchorManager == null)
+        {
+            Debug.LogError("SessionManager: anchorManager is not assigned. " +
+                            "Drag the ARAnchorManager (on your XR Origin) into the AR refs field.");
+        }
+
         // Kick off the very first refresh so we have candidates ready
         // before the first target request.
         if (spawnFinder != null) spawnFinder.RefreshCandidates();
@@ -84,8 +99,8 @@ public class SessionManager : MonoBehaviour
             onSuccess: (resp) =>
             {
                 _currentDifficulty = resp.difficulty;
-                SpawnTargetAt(resp.spawn_point);
                 hud?.SetDifficulty(resp.difficulty);
+                _ = SpawnTargetAtAsync(resp.spawn_point); // fire-and-forget; guarded internally by _spawnRequestId
             },
             onError: (err) =>
             {
@@ -96,20 +111,68 @@ public class SessionManager : MonoBehaviour
 
     private void RetryRequestNextTarget() => RequestAndSpawnNextTarget(null);
 
-    private void SpawnTargetAt(Vec3Dto spawnPointLocalSpace)
+    /// <summary>
+    /// Destroys any existing target/anchor, waits for that destruction to
+    /// actually flush (Destroy() is deferred to end-of-frame -- creating a
+    /// new anchor before the old one has unregistered is what caused the
+    /// "Assertion failure. Value was True Expected: False" crash in
+    /// TrackableSpawner.RegisterCreatedTrackable), then creates the new
+    /// anchor through ARAnchorManager and instantiates the target as its
+    /// child. This ID guard also makes sure that if HandleAnchorLost fires
+    /// again while this coroutine is still awaiting the async anchor add,
+    /// the stale result gets discarded instead of spawning two targets.
+    /// </summary>
+    private async Task SpawnTargetAtAsync(Vec3Dto spawnPointLocalSpace)
     {
+        int requestId = ++_spawnRequestId;
+
         CleanupCurrentTarget();
+
+        // Let Destroy() of the previous target/anchor actually flush before
+        // we register a new one -- Destroy() is deferred to end-of-frame,
+        // and creating a new anchor before the old one unregisters is what
+        // caused the "Assertion failure. Value was True Expected: False"
+        // crash in TrackableSpawner.RegisterCreatedTrackable.
+        await Awaitable.NextFrameAsync();
+
+        if (requestId != _spawnRequestId) return; // superseded while we waited
 
         Camera cam = ARSessionManager.Instance.ArCamera;
         _currentTargetLocalPosAtSpawn = spawnPointLocalSpace.ToVector3();
         Vector3 worldPos = cam.transform.TransformPoint(_currentTargetLocalPosAtSpawn);
+        var pose = new Pose(worldPos, Quaternion.identity);
 
-        _currentTarget = Instantiate(birdPrefab, worldPos, Quaternion.identity);
+        Result<ARAnchor> result;
+        try
+        {
+            result = await anchorManager.TryAddAnchorAsync(pose);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"Anchor creation threw ({e.Message}) -- retrying in 1s");
+            if (requestId == _spawnRequestId) Invoke(nameof(RetryRequestNextTarget), 1f);
+            return;
+        }
 
-        // Anchor it so it stays fixed in real-world space regardless of the
-        // patient walking around or the tracking system refining its map --
-        // see the architecture notes on ARAnchor for why this matters.
-        _currentAnchor = _currentTarget.AddComponent<ARAnchor>();
+        if (requestId != _spawnRequestId)
+        {
+            // A newer spawn started while this anchor was being created --
+            // dispose it immediately so it doesn't leak or collide later.
+            if (result.status.IsSuccess()) Destroy(result.value.gameObject);
+            return;
+        }
+
+        if (!result.status.IsSuccess())
+        {
+            Debug.LogWarning($"Anchor creation failed ({result.status}) -- retrying in 1s");
+            Invoke(nameof(RetryRequestNextTarget), 1f);
+            return;
+        }
+
+        _currentAnchor = result.value;
+        _currentTarget = Instantiate(birdPrefab, _currentAnchor.transform);
+        _currentTarget.transform.localPosition = Vector3.zero;
+        _currentTarget.transform.localRotation = Quaternion.identity;
 
         var birdController = _currentTarget.GetComponent<BirdController>();
         // For bird_chase mode the target can drift slightly around its
@@ -200,6 +263,14 @@ public class SessionManager : MonoBehaviour
         RequestAndSpawnNextTarget(result);
     }
 
+    /// <summary>
+    /// Destroys the current target GameObject (which is now the child of
+    /// its anchor, so this also tears down the ARAnchor) and stops the
+    /// health-check coroutine. Does NOT create anything new -- callers
+    /// that spawn a replacement must go through SpawnTargetAtRoutine,
+    /// which waits a frame after calling this so the destroy actually
+    /// flushes before a new anchor is registered.
+    /// </summary>
     private void CleanupCurrentTarget()
     {
         if (_anchorHealthRoutine != null) StopCoroutine(_anchorHealthRoutine);
