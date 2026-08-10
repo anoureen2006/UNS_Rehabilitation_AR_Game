@@ -1,0 +1,177 @@
+{
+  "session_id": "fa8a4ce9",
+  "patient_id": "demo01",
+  "neglect_side": "left",
+  "exercise_mode": "bird_chase",
+  "created_at": 1786324175.123689,
+  "trials": [
+    {
+      "timestamp": 1786324175.240312,
+      "hit": false,
+      "reaction_time_ms": 0.0,
+      "gaze_angle_deg": 0.0,
+      "hemifield": "non_neglected",
+      "difficulty_at_trial": {
+        "speed": 0.5,
+        "eccentricity_deg": 20.0,
+        "distance_m": 1.5,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324175.341182,
+      "hit": false,
+      "reaction_time_ms": 0.0,
+      "gaze_angle_deg": 0.0,
+      "hemifield": "non_neglected",
+      "difficulty_at_trial": {
+        "speed": 0.5,
+        "eccentricity_deg": 20.0,
+        "distance_m": 1.5,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324175.387458,
+      "hit": false,
+      "reaction_time_ms": 0.0,
+      "gaze_angle_deg": 0.0,
+      "hemifield": "non_neglected",
+      "difficulty_at_trial": {
+        "speed": 0.4,
+        "eccentricity_deg": 15.0,
+        "distance_m": 1.4,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324175.437283,
+      "hit": false,
+      "reaction_time_ms": 0.0,
+      "gaze_angle_deg": 0.0,
+      "hemifield": "non_neglected",
+      "difficulty_at_trial": {
+        "speed": 0.3,
+        "eccentricity_deg": 10.0,
+        "distance_m": 1.3,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324178.137234,
+      "hit": true,
+      "reaction_time_ms": 1520.8359375,
+      "gaze_angle_deg": 5.497720241546631,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.3,
+        "eccentricity_deg": 10.0,
+        "distance_m": 1.0,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324182.116587,
+      "hit": true,
+      "reaction_time_ms": 3863.12646484375,
+      "gaze_angle_deg": 7.430174350738525,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.3,
+        "eccentricity_deg": 10.0,
+        "distance_m": 1.0,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324189.710827,
+      "hit": true,
+      "reaction_time_ms": 7418.09423828125,
+      "gaze_angle_deg": 7.986598491668701,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.3,
+        "eccentricity_deg": 10.0,
+        "distance_m": 1.0,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324192.560419,
+      "hit": true,
+      "reaction_time_ms": 2663.805908203125,
+      "gaze_angle_deg": 6.970603942871094,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.4,
+        "eccentricity_deg": 15.0,
+        "distance_m": 1.1,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324222.7365062,
+      "hit": false,
+      "reaction_time_ms": 30000.0,
+      "gaze_angle_deg": 69.1445083618164,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.5,
+        "eccentricity_deg": 20.0,
+        "distance_m": 1.2,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324230.9387991,
+      "hit": true,
+      "reaction_time_ms": 1314.525634765625,
+      "gaze_angle_deg": 7.087895393371582,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.3,
+        "eccentricity_deg": 10.0,
+        "distance_m": 1.0,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324231.527175,
+      "hit": true,
+      "reaction_time_ms": 516.1819458007812,
+      "gaze_angle_deg": 2.6215195655822754,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.3,
+        "eccentricity_deg": 10.0,
+        "distance_m": 1.0,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    },
+    {
+      "timestamp": 1786324261.618068,
+      "hit": false,
+      "reaction_time_ms": 30000.0,
+      "gaze_angle_deg": 35.50474548339844,
+      "hemifield": "neglected",
+      "difficulty_at_trial": {
+        "speed": 0.3,
+        "eccentricity_deg": 10.0,
+        "distance_m": 1.0,
+        "target_count": 3,
+        "time_limit_s": 30.0
+      }
+    }
+  ]
+}
