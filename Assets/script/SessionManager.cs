@@ -38,6 +38,10 @@ public class SessionManager : MonoBehaviour
     [Tooltip("How often to check the current anchor's tracking state, in seconds. Doesn't need to be every frame.")]
     [SerializeField] private float anchorHealthCheckIntervalS = 0.5f;
 
+    [Header("Audio hint")]
+    [Tooltip("Seconds of no hit before the target plays a spatialized call to help the patient find it. Set to 0 or a very large number to effectively disable.")]
+    [SerializeField] private float hintDelayS = 15f;
+
     public GameState State { get; private set; } = GameState.Idle;
 
     private string _sessionId;
@@ -47,6 +51,7 @@ public class SessionManager : MonoBehaviour
     private Vector3 _currentTargetLocalPosAtSpawn; // camera-local space, for logging hemifield correctly
     private Coroutine _timeoutRoutine;
     private Coroutine _anchorHealthRoutine;
+    private Coroutine _hintRoutine;
 
     // Guards against a stale/in-flight spawn finishing after a newer one
     // has already started (e.g. anchor-lost fires right as a trial resolves).
@@ -59,6 +64,18 @@ public class SessionManager : MonoBehaviour
             Debug.LogError("SessionManager: anchorManager is not assigned. " +
                             "Drag the ARAnchorManager (on your XR Origin) into the AR refs field.");
         }
+
+        // Pull menu-selected values if the player came from MainMenuController.
+        // Falls back to the Inspector-configured defaults above so this scene
+        // still works standalone (e.g. testing the game scene directly in
+        // Editor without going through the menu first).
+        if (PlayerPrefs.HasKey("usn_neglect_side"))
+        {
+            neglectSide = PlayerPrefs.GetString("usn_neglect_side", neglectSide);
+            exerciseMode = PlayerPrefs.GetString("usn_exercise_mode", exerciseMode);
+            patientId = PlayerPrefs.GetString("usn_patient_id", patientId);
+        }
+        hud?.SetStatus($"Patient: {patientId}  |  Neglect side: {neglectSide}  |  Mode: {exerciseMode}");
 
         // Kick off the very first refresh so we have candidates ready
         // before the first target request.
@@ -126,6 +143,24 @@ public class SessionManager : MonoBehaviour
     {
         int requestId = ++_spawnRequestId;
 
+        Camera cam = ARSessionManager.Instance.ArCamera;
+        _currentTargetLocalPosAtSpawn = spawnPointLocalSpace.ToVector3();
+        Vector3 worldPos = cam.transform.TransformPoint(_currentTargetLocalPosAtSpawn);
+
+        // If a bird is already on screen (i.e. this isn't the very first
+        // spawn of the session), fly it smoothly to the new spot BEFORE
+        // tearing it down -- by the time we destroy/recreate at the new
+        // anchor below, the replacement appears exactly where the old one
+        // just arrived, so the swap reads as one continuous flight instead
+        // of a teleport.
+        if (_currentTarget != null)
+        {
+            var oldBird = _currentTarget.GetComponent<BirdController>();
+            if (oldBird != null) await oldBird.FlyToAsync(worldPos);
+        }
+
+        if (requestId != _spawnRequestId) return; // superseded while we were flying/waiting
+
         CleanupCurrentTarget();
 
         // Let Destroy() of the previous target/anchor actually flush before
@@ -137,9 +172,6 @@ public class SessionManager : MonoBehaviour
 
         if (requestId != _spawnRequestId) return; // superseded while we waited
 
-        Camera cam = ARSessionManager.Instance.ArCamera;
-        _currentTargetLocalPosAtSpawn = spawnPointLocalSpace.ToVector3();
-        Vector3 worldPos = cam.transform.TransformPoint(_currentTargetLocalPosAtSpawn);
         var pose = new Pose(worldPos, Quaternion.identity);
 
         Result<ARAnchor> result;
@@ -170,17 +202,25 @@ public class SessionManager : MonoBehaviour
         }
 
         _currentAnchor = result.value;
-        _currentTarget = Instantiate(birdPrefab, _currentAnchor.transform);
-        _currentTarget.transform.localPosition = Vector3.zero;
-        _currentTarget.transform.localRotation = Quaternion.identity;
+
+        // Deliberately NOT parented under _currentAnchor.transform. If AR
+        // tracking degrades (camera briefly covered/occluded, poor
+        // lighting, fast motion), the anchor's pose can jitter or drift as
+        // the subsystem re-estimates it -- a bird parented under that
+        // jittering transform visibly glitches even though BirdController's
+        // own movement math is smooth. Instead we read the anchor's world
+        // position ONCE here and instantiate the bird as an independent
+        // root-level object; BirdController owns 100% of its motion from
+        // this point on, regardless of what the AR subsystem later does to
+        // the anchor. The anchor is kept only for MonitorAnchorHealth's
+        // tracking-state checks (a real, sustained loss still correctly
+        // triggers a respawn).
+        _currentTarget = Instantiate(birdPrefab, worldPos, Quaternion.identity);
 
         var birdController = _currentTarget.GetComponent<BirdController>();
-        // For bird_chase mode the target can drift slightly around its
-        // spawn point to feel alive; for star_collect keep it stationary.
-        Vector3 wanderTarget = worldPos + (exerciseMode == "bird_chase"
-            ? Random.insideUnitSphere * 0.15f
-            : Vector3.zero);
-        birdController.SetTarget(wanderTarget, _currentDifficulty.speed);
+        // BirdController owns all wandering/orbit motion internally now --
+        // just tell it where "home" is.
+        birdController.SetTarget(worldPos, _currentDifficulty.speed);
 
         gazeTracker.BeginTrial(_currentTarget.transform);
         State = GameState.Tracking;
@@ -192,28 +232,77 @@ public class SessionManager : MonoBehaviour
 
         if (_anchorHealthRoutine != null) StopCoroutine(_anchorHealthRoutine);
         _anchorHealthRoutine = StartCoroutine(MonitorAnchorHealth());
+
+        if (_hintRoutine != null) StopCoroutine(_hintRoutine);
+        // Clamp to a safe fraction of THIS trial's actual time limit -- if
+        // hintDelayS (e.g. 15s) is longer than the trial's time_limit_s
+        // (from the difficulty controller), MissTimeout would end the
+        // trial before the hint ever got a chance to play, silently
+        // "breaking" the sound with no error anywhere.
+        float effectiveHintDelay = Mathf.Min(hintDelayS, _currentDifficulty.time_limit_s * 0.6f);
+        if (effectiveHintDelay > 0.1f) _hintRoutine = StartCoroutine(HintAfterDelay(effectiveHintDelay));
+    }
+
+    /// <summary>
+    /// Waits delayS seconds, then asks the bird to play its spatialized
+    /// call so the patient has an auditory cue toward the neglected side.
+    /// BirdController itself guards against double-playing or playing after
+    /// the target's already been found -- this coroutine just fires the ask.
+    /// </summary>
+    private IEnumerator HintAfterDelay(float delayS)
+    {
+        yield return new WaitForSeconds(delayS);
+        if (_currentTarget != null)
+        {
+            var bird = _currentTarget.GetComponent<BirdController>();
+            bird?.PlayHintCallIfNeeded();
+        }
     }
 
     /// <summary>
     /// Periodically checks whether the current anchor is still being
     /// actively tracked by the AR subsystem. If the patient walks
-    /// somewhere with no tracked geometry, moves too fast, or the tracking
-    /// system loses confidence, the anchor's TrackingState degrades from
-    /// Tracking to Limited/None. When that happens we respawn the target
-    /// immediately rather than let it float in a stale/wrong position --
-    /// and crucially this does NOT count as a miss, since it's a tracking
-    /// failure, not a patient performance failure. Logging it as a miss
-    /// would corrupt your hit-rate/asymmetry metrics.
+    /// somewhere with no tracked geometry, moves too fast, covers the
+    /// camera, or the tracking system loses confidence, the anchor's
+    /// TrackingState degrades from Tracking to Limited/None. When that
+    /// SUSTAINS for several consecutive checks (not just one blip) we
+    /// respawn the target rather than let it float in a stale/wrong
+    /// position -- and crucially this does NOT count as a miss, since
+    /// it's a tracking failure, not a patient performance failure.
+    ///
+    /// The consecutive-check requirement (rather than reacting to the
+    /// very first non-Tracking reading) exists specifically because a
+    /// covered/occluded camera causes TrackingState to flicker rapidly
+    /// between Tracking and Limited -- reacting instantly caused a
+    /// destroy/recreate respawn on every flicker, which is what looked
+    /// like constant "glitching."
     /// </summary>
     private IEnumerator MonitorAnchorHealth()
     {
+        const int requiredConsecutiveBadChecks = 4; // ~2s sustained loss at the default 0.5s interval
+        int badCheckStreak = 0;
+
         var wait = new WaitForSeconds(anchorHealthCheckIntervalS);
+
+        // Brief grace period right after a fresh anchor is created --
+        // newly created anchors can legitimately start as Limited for a
+        // moment while the AR subsystem settles.
+        yield return new WaitForSeconds(1f);
+
         while (_currentAnchor != null)
         {
             if (_currentAnchor.trackingState != TrackingState.Tracking)
             {
-                HandleAnchorLost();
-                yield break;
+                badCheckStreak++;
+                if (badCheckStreak >= requiredConsecutiveBadChecks)
+                {
+                    HandleAnchorLost();
+                    yield break;
+                }
+            }
+            else
+            {
+                badCheckStreak = 0; // any good reading resets the streak
             }
             yield return wait;
         }
@@ -235,6 +324,7 @@ public class SessionManager : MonoBehaviour
     {
         gazeTracker.OnTargetAcquired -= HandleTargetAcquired;
         if (_timeoutRoutine != null) StopCoroutine(_timeoutRoutine);
+        if (_hintRoutine != null) StopCoroutine(_hintRoutine);
         ResolveTrial(hit: true, reactionMs, gazeAngleDeg);
     }
 
@@ -250,6 +340,14 @@ public class SessionManager : MonoBehaviour
     {
         State = GameState.Resolving;
         gazeTracker.EndTrial();
+
+        // Tell the bird the trial is over so it stops wandering/flying and
+        // the Animator transitions to perched -- BirdController no longer
+        // does this on its own via proximity (see BirdController header).
+        if (_currentTarget != null)
+        {
+            _currentTarget.GetComponent<BirdController>()?.Stop();
+        }
 
         var result = new TrialResultDto
         {
@@ -271,11 +369,24 @@ public class SessionManager : MonoBehaviour
     /// which waits a frame after calling this so the destroy actually
     /// flushes before a new anchor is registered.
     /// </summary>
+    /// <summary>
+    /// Destroys the current target GameObject AND the anchor's own
+    /// GameObject -- the bird is no longer parented under the anchor (see
+    /// SpawnTargetAtAsync), so both need to be destroyed explicitly or the
+    /// anchor leaks (stays alive, invisible, forever) every single round.
+    /// Also stops the health-check/hint coroutines. Does NOT create
+    /// anything new -- callers that spawn a replacement must go through
+    /// SpawnTargetAtAsync, which waits a frame after calling this so the
+    /// destroys actually flush before a new anchor is registered.
+    /// </summary>
     private void CleanupCurrentTarget()
     {
         if (_anchorHealthRoutine != null) StopCoroutine(_anchorHealthRoutine);
         _anchorHealthRoutine = null;
+        if (_hintRoutine != null) StopCoroutine(_hintRoutine);
+        _hintRoutine = null;
         if (_currentTarget != null) Destroy(_currentTarget);
+        if (_currentAnchor != null) Destroy(_currentAnchor.gameObject);
         _currentTarget = null;
         _currentAnchor = null;
     }
