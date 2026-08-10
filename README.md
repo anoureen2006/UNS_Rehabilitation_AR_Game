@@ -6,25 +6,25 @@ This repository contains the complete Reinforcement Learning (RL) controller des
 
 ## 🎯 System Architecture Overview
 
-The RL system acts as an **Automated Adaptive Physical Therapist**. It ingests Unity session telemetry JSON logs and dynamically adjusts target difficulty parameters for each trial to stretch the patient's neglected visual field while avoiding $30\text{s}$ timeouts and cognitive fatigue.
+The RL system acts as an **Automated Adaptive Physical Therapist**. It ingests Unity session telemetry JSON logs and dynamically adjusts target difficulty parameters for each trial to stretch the patient's neglected visual field while avoiding 30s timeouts and cognitive fatigue.
 
 ```mermaid
 graph TD
-    subgraph Phase1 [Phase 1: Pre-training Base Model (Offline)]
-        SimEnv[UnityARRehabEnv Simulation] --> TrainBase[Train Base Model: train_unity.py]
-        TrainBase --> BaseCheckpt[(checkpoints/unity_ppo_model.zip)]
+    subgraph Phase1 ["Phase 1: Pre-training Base Model (Offline)"]
+        SimEnv["UnityARRehabEnv Simulation"] --> TrainBase["Train Base Model: train_unity.py"]
+        TrainBase --> BaseCheckpt[("checkpoints/unity_ppo_model.zip")]
     end
 
-    subgraph Phase2 [Phase 2: Continuous Adaptive Training in Unity (Live Session)]
-        BaseCheckpt --> LoadPatient[Load Model for Patient: demo01]
-        LoadPatient --> PlayTrial[Patient Plays AR Trial in Unity]
-        PlayTrial --> SendTelemetry[Send Telemetry JSON to Server]
-        SendTelemetry --> StateVec[15-Dim Observation Vector s_t]
-        StateVec --> PolicyNet[PPO Neural Network π_θ]
-        PolicyNet --> ActionDec[Select 4 Actions: speed, eccentricity, distance, time_limit]
-        ActionDec --> ComputeReward[Calculate Live Reward R_t]
-        ComputeReward --> FineTune[Continuous Adaptation: model.learn reset_num_timesteps=False]
-        FineTune --> SavePatient[(checkpoints/patients/demo01_ppo.zip)]
+    subgraph Phase2 ["Phase 2: Continuous Adaptive Training in Unity (Live Session)"]
+        BaseCheckpt --> LoadPatient["Load Model for Patient: demo01"]
+        LoadPatient --> PlayTrial["Patient Plays AR Trial in Unity"]
+        PlayTrial --> SendTelemetry["Send Telemetry JSON to Server"]
+        SendTelemetry --> StateVec["15-Dim Observation Vector s_t"]
+        StateVec --> PolicyNet["PPO Neural Network pi_theta"]
+        PolicyNet --> ActionDec["Select 4 Actions: speed, eccentricity, distance, time_limit"]
+        ActionDec --> ComputeReward["Calculate Live Reward R_t"]
+        ComputeReward --> FineTune["Continuous Adaptation: model.learn reset_num_timesteps=False"]
+        FineTune --> SavePatient[("checkpoints/patients/demo01_ppo.zip")]
         SavePatient --> ActionDec
     end
 ```
@@ -53,28 +53,28 @@ Below is the complete reference guide for every essential file in this repositor
 
 ## 📊 15-Dimensional State Vector & 4 Dynamic Actions
 
-### 15-Dimensional Observation Vector ($\mathbf{s}_t$)
-- `obs[0]`: Previous trial hit status ($1.0$ or $0.0$)
-- `obs[1]`: Reaction time normalized ($\text{RT} / 30,000\text{ms}$)
-- `obs[2]`: Gaze angle offset normalized ($\text{gaze} / 90^\circ$)
-- `obs[3]`: Hemifield indicator ($1.0$ if neglected side, $0.0$ if non-neglected)
-- `obs[4]`: Current target speed ($0.2 - 0.8\text{ m/s}$)
-- `obs[5]`: Current target eccentricity ($5^\circ - 35^\circ$)
-- `obs[6]`: Current target distance ($0.8 - 2.5\text{ m}$)
+### 15-Dimensional Observation Vector
+- `obs[0]`: Previous trial hit status (1.0 or 0.0)
+- `obs[1]`: Reaction time normalized (`reaction_time_ms` / 30,000 ms)
+- `obs[2]`: Gaze angle offset normalized (`gaze_angle_deg` / 90°)
+- `obs[3]`: Hemifield indicator (1.0 if neglected side, 0.0 if non-neglected)
+- `obs[4]`: Current target speed (0.2 - 0.8 m/s)
+- `obs[5]`: Current target eccentricity (5° - 35°)
+- `obs[6]`: Current target distance (0.8 - 2.5 m)
 - `obs[7]`: Target count normalized (fixed at 3)
-- `obs[8]`: Time limit normalized ($\text{time\_limit\_s} / 45.0\text{s}$)
+- `obs[8]`: Time limit normalized (`time_limit_s` / 45.0 s)
 - `obs[9]`: Rolling hit rate (last 5 trials)
 - `obs[10]`: Rolling average reaction time (last 5 trials)
 - `obs[11]`: Consecutive timeout failure count
-- `obs[12]`: Neglect side indicator ($1.0$ for Left Neglect, $0.0$ for Right Neglect)
-- `obs[13]`: Session progress ratio ($\text{trial\_idx} / 60$)
+- `obs[12]`: Neglect side indicator (1.0 for Left Neglect, 0.0 for Right Neglect)
+- `obs[13]`: Session progress ratio (`trial_idx` / 60)
 - `obs[14]`: Accumulated cognitive fatigue estimate
 
-### 4 Dynamic RL Actions ($\mathbf{a}_t$)
-1. **`speed`**: $[0.2, 0.8]\text{ m/s}$ (Movement speed challenge)
-2. **`eccentricity_deg`**: $[5^\circ, 35^\circ]$ (Scanning angle into neglected hemifield)
-3. **`distance_m`**: $[0.8, 2.5]\text{ m}$ (3D AR depth distance)
-4. **`time_limit_s`**: $[10.0, 45.0]\text{ s}$ (Dynamic trial timeout window)
+### 4 Dynamic RL Actions
+1. **`speed`**: 0.2 - 0.8 m/s (Movement speed challenge)
+2. **`eccentricity_deg`**: 5.0° - 35.0° (Scanning angle into neglected hemifield)
+3. **`distance_m`**: 0.8 - 2.5 m (3D AR depth distance)
+4. **`time_limit_s`**: 10.0 - 45.0 s (Dynamic trial timeout window)
 *(Note: `target_count` is kept as a fixed constant = 3 for visual clutter control)*
 
 ---

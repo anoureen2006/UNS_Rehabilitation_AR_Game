@@ -1,26 +1,22 @@
-Here is your complete, updated research-grade document incorporating the **4 Dynamic RL Actions (`speed`, `eccentricity_deg`, `distance_m`, `time_limit_s`)**, the **Fixed `target_count` = 3**, the **Left/Right Neglect support**, and the **Two-Phase Pre-training & Continuous Adaptive Architecture**:
-
----
-
 # AR Rehabilitation RL Controller Architecture
 
 ```mermaid
 graph TD
-    subgraph Phase1 [Phase 1: Pre-training Base Model (Offline)]
-        SimEnv[UnityARRehabEnv Simulation] --> TrainBase[Train Base Model: train_unity.py]
-        TrainBase --> BaseCheckpt[(base_ppo_model.zip)]
+    subgraph Phase1 ["Phase 1: Pre-training Base Model (Offline)"]
+        SimEnv["UnityARRehabEnv Simulation"] --> TrainBase["Train Base Model: train_unity.py"]
+        TrainBase --> BaseCheckpt[("checkpoints/unity_ppo_model.zip")]
     end
 
-    subgraph Phase2 [Phase 2: Continuous Adaptive Training in Unity (Live Session)]
-        BaseCheckpt --> LoadPatient[Load Model for Patient: demo01]
-        LoadPatient --> PlayTrial[Patient Plays AR Trial in Unity]
-        PlayTrial --> SendTelemetry[Send Telemetry JSON to Server]
-        SendTelemetry --> StateVec[15-Dim Observation Vector s_t]
-        StateVec --> PolicyNet[PPO Neural Network π_θ]
-        PolicyNet --> ActionDec[Select 4 Actions: speed, eccentricity, distance, time_limit]
-        ActionDec --> ComputeReward[Calculate Live Reward R_t]
-        ComputeReward --> FineTune[Continuous Adaptation: model.learn reset_num_timesteps=False]
-        FineTune --> SavePatient[(patient_demo01_ppo.zip)]
+    subgraph Phase2 ["Phase 2: Continuous Adaptive Training in Unity (Live Session)"]
+        BaseCheckpt --> LoadPatient["Load Model for Patient: demo01"]
+        LoadPatient --> PlayTrial["Patient Plays AR Trial in Unity"]
+        PlayTrial --> SendTelemetry["Send Telemetry JSON to Server"]
+        SendTelemetry --> StateVec["15-Dim Observation Vector s_t"]
+        StateVec --> PolicyNet["PPO Neural Network pi_theta"]
+        PolicyNet --> ActionDec["Select 4 Actions: speed, eccentricity, distance, time_limit"]
+        ActionDec --> ComputeReward["Calculate Live Reward R_t"]
+        ComputeReward --> FineTune["Continuous Adaptation: model.learn reset_num_timesteps=False"]
+        FineTune --> SavePatient[("checkpoints/patients/demo01_ppo.zip")]
         SavePatient --> ActionDec
     end
 ```
@@ -40,19 +36,19 @@ A **15-dimensional normalized vector** extracted directly from your Unity sessio
 | Index | Feature | Range | Description |
 | :---: | :--- | :---: | :--- |
 | `obs[0]` | `last_hit` | $0.0 \text{ or } 1.0$ | $1.0$ if previous trial was a hit, $0.0$ if miss/timeout. |
-| `obs[1]` | `last_rt_norm` | $[0.0, 1.0]$ | Normalized reaction time ($\text{RT} / 30,000\text{ms}$). |
-| `obs[2]` | `last_gaze_offset` | $[0.0, 1.0]$ | Patient head/gaze offset angle ($\text{gaze\_deg} / 90^\circ$). |
+| `obs[1]` | `last_rt_norm` | $[0.0, 1.0]$ | Normalized reaction time (`reaction_time_ms` / 30,000 ms). |
+| `obs[2]` | `last_gaze_offset` | $[0.0, 1.0]$ | Patient head/gaze offset angle (`gaze_angle_deg` / 90°). |
 | `obs[3]` | `is_neglected` | $0.0 \text{ or } 1.0$ | $1.0$ if target was in neglected hemifield. |
 | `obs[4]` | `current_speed` | $[0.0, 1.0]$ | Target movement speed ($0.2 - 0.8\text{ m/s}$). |
 | `obs[5]` | `current_eccentricity`| $[0.0, 1.0]$ | Target angle into neglected field ($5^\circ - 35^\circ$). |
 | `obs[6]` | `current_distance` | $[0.0, 1.0]$ | Depth distance of target ($0.8 - 2.5\text{m}$). |
-| `obs[7]` | `target_count` | $[0.0, 1.0]$ | Number of visual targets ($\text{count} / 5.0$, fixed at 3). |
-| `obs[8]` | `time_limit` | $[0.0, 1.0]$ | Trial time limit ($\text{time\_limit\_s} / 45.0\text{s}$). |
+| `obs[7]` | `target_count` | $[0.0, 1.0]$ | Number of visual targets (`count` / 5.0, fixed at 3). |
+| `obs[8]` | `time_limit` | $[0.0, 1.0]$ | Trial time limit (`time_limit_s` / 45.0 s). |
 | `obs[9]` | `rolling_hit_rate` | $[0.0, 1.0]$ | Average success rate over last 5 trials. |
 | `obs[10]`| `rolling_avg_rt` | $[0.0, 1.0]$ | Average reaction time over last 5 trials. |
 | `obs[11]`| `consecutive_timeouts`| $[0.0, 1.0]$ | Count of back-to-back timeout failures. |
 | `obs[12]`| `neglect_side_is_left` | $0.0 \text{ or } 1.0$ | $1.0$ for Left Spatial Neglect, $0.0$ for Right Neglect. |
-| `obs[13]`| `session_progress` | $[0.0, 1.0]$ | Trial progress ratio ($\text{trial\_idx} / 60$). |
+| `obs[13]`| `session_progress` | $[0.0, 1.0]$ | Trial progress ratio (`trial_idx` / 60). |
 | `obs[14]`| `fatigue_estimate` | $[0.0, 1.0]$ | Accumulated cognitive fatigue factor. |
 
 ### 3. Action Vector ($\mathbf{a}_t \in \mathcal{A}$)
@@ -97,7 +93,7 @@ Multi-Layer Perceptron (MLP) neural network mapping observation vectors $\mathbf
 ### Phase 1: Pre-training the Base Model (Offline Simulation)
 * **Goal**: Establish a safe baseline policy before any real patient uses the AR headset.
 * **Execution**: Run `python train_unity.py`.
-* **Output**: `checkpoints/base_ppo_model.zip` (Ensures safe initial defaults such as $10^\circ\text{ eccentricity, } 0.3\text{ m/s speed}$).
+* **Output**: `checkpoints/unity_ppo_model.zip` (Ensures safe initial defaults such as 10° eccentricity, 0.3 m/s speed).
 
 ### Phase 2: Continuous Online Adaptive Fine-Tuning (Live Unity Session)
 * **Goal**: Personalize the neural network in real-time to patient `demo01`'s specific neglect border, motor speed, and fatigue rate.
@@ -237,10 +233,10 @@ We implement and compare **3 primary Deep Reinforcement Learning algorithms**:
 The overall objective of the RL agent is to act as an **Intelligent Automated Physical Therapist** that maximizes **Rehabilitation Quality & Spatial Neglect Recovery**:
 
 1. **Scaffolding the Neglected Border (Vygotsky Zone of Proximal Development)**:
-   - Rather than making harsh jumps ($10^\circ \to 20^\circ$) that cause $30\text{s}$ timeouts, the RL policy learns to **gradually expand** the patient's neglected scanning boundary ($10^\circ \to 12.5^\circ \to 14^\circ \to 16^\circ$).
+   - Rather than making harsh jumps ($10^\circ \to 20^\circ$) that cause 30s timeouts, the RL policy learns to **gradually expand** the patient's neglected scanning boundary ($10^\circ \to 12.5^\circ \to 14^\circ \to 16^\circ$).
 
 2. **Dynamic Trial Timeout Optimization**:
-   - Dynamically adjust `time_limit_s` ($10\text{s} - 45\text{s}$) to match patient reaction speed, eliminating disengagement and frustration.
+   - Dynamically adjust `time_limit_s` (10s - 45s) to match patient reaction speed, eliminating disengagement and frustration.
 
 3. **Dynamic Fatigue & Attention Management**:
    - Automatically detect when reaction times begin to degrade due to fatigue, temporarily easing off target speed/distance to allow recovery before challenging the patient again.
