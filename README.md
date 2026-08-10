@@ -1,88 +1,104 @@
-# AR Rehabilitation RL Simulation (UNS / Spatial Neglect Digital Pet Placement)
+# Unity AR Rehabilitation RL Controller (Spatial Neglect Adaptation)
 
-This repository module contains a complete Reinforcement Learning (RL) simulation for an **Augmented Reality (AR) rehabilitation system** designed for stroke patients with **Unilateral Spatial Neglect (USN)**.
-
----
-
-## 💡 Main Concept
-
-The AR rehabilitation room contains **ONE virtual digital pet**.
-The patient's mission is simply: *"Explore the room and find the digital pet."*
-
-> **Key Architecture**: The RL agent **does not control the patient**. Instead, the RL agent dynamically decides **WHERE the digital pet should appear** in the 10m x 10m room ($20 \times 20$ grid = 400 cells) to maximize:
-> - Room exploration
-> - Neglected-side (left) exploration
-> - Rehabilitation effectiveness
-> - Patient engagement
+This repository contains the complete Reinforcement Learning (RL) controller designed for an **Augmented Reality (AR) Rehabilitation System** for stroke patients with **Unilateral Spatial Neglect (USN)**.
 
 ---
 
-## 📂 Codebase Structure
+## 🎯 System Architecture Overview
 
-| File | Description |
-| :--- | :--- |
-| `config.py` | Configuration file for room size (10m x 10m), grid size (20x20), USN severity, patient default parameters, reward weights, and training settings. |
-| `patient.py` | Mathematical model simulating a stroke patient with USN (left spatial neglect), FOV cone ($120^\circ$), walking speed, fatigue, working memory, obstacle repulsion, and rightward turning bias. |
-| `digital_pet.py` | Virtual AR Digital Pet object representation, cell ID mapping (0..399), continuous coordinate transforms, and reach detection. |
-| `reward.py` | Rehabilitation reward shaping function penalizing premature pet discovery and rightward bias while rewarding deep left-side exploration and coverage balance. |
-| `environment.py` | Gymnasium environment (`ARRehabEnv`) with 44-dimensional normalized observation vector and 400-discrete action space. |
-| `utils.py` | Seed management, evaluation metric aggregation, and baseline heuristic policies (Random, Center, Extreme Left). |
-| `visualization.py` | Matplotlib 2D room layouts, 20x20 exploration heatmaps, SB3 learning curves, and Plotly interactive 3D surface/trajectory HTML charts. |
-| `train.py` | Training script for **PPO**, **DQN**, and **A2C** algorithms using Stable-Baselines3 with custom callback logging. |
-| `evaluate.py` | Benchmarking script comparing baseline heuristics vs trained RL models across 50 test episodes per policy. |
-| `app.py` | **Interactive Streamlit Web Application** for live simulation, parameter tuning, algorithm comparison, and Unity AR telemetry JSON export. |
-| `run_all.py` | Master pipeline execution script running training, evaluation, and plot generation. |
-| `rehab_ar_simulation.ipynb` | Kaggle / Google Colab ready executable Jupyter notebook. |
-| `test_simulation.py` | PyUnittest suite verifying environment step mechanics, patient USN turning dynamics, grid cell mapping, and reward signals. |
+The RL system acts as an **Automated Adaptive Physical Therapist**. It ingests Unity session telemetry JSON logs and dynamically adjusts target difficulty parameters for each trial to stretch the patient's neglected visual field while avoiding $30\text{s}$ timeouts and cognitive fatigue.
 
----
+```mermaid
+graph TD
+    subgraph Phase1 [Phase 1: Pre-training Base Model (Offline)]
+        SimEnv[UnityARRehabEnv Simulation] --> TrainBase[Train Base Model: train_unity.py]
+        TrainBase --> BaseCheckpt[(checkpoints/unity_ppo_model.zip)]
+    end
 
-## 🚀 How to Run
-
-### 1. Run Unit Tests
-```bash
-python test_simulation.py
+    subgraph Phase2 [Phase 2: Continuous Adaptive Training in Unity (Live Session)]
+        BaseCheckpt --> LoadPatient[Load Model for Patient: demo01]
+        LoadPatient --> PlayTrial[Patient Plays AR Trial in Unity]
+        PlayTrial --> SendTelemetry[Send Telemetry JSON to Server]
+        SendTelemetry --> StateVec[15-Dim Observation Vector s_t]
+        StateVec --> PolicyNet[PPO Neural Network π_θ]
+        PolicyNet --> ActionDec[Select 4 Actions: speed, eccentricity, distance, time_limit]
+        ActionDec --> ComputeReward[Calculate Live Reward R_t]
+        ComputeReward --> FineTune[Continuous Adaptation: model.learn reset_num_timesteps=False]
+        FineTune --> SavePatient[(checkpoints/patients/demo01_ppo.zip)]
+        SavePatient --> ActionDec
+    end
 ```
 
-### 2. Launch Interactive Streamlit Web Application
+---
+
+## 📂 Important Project Files Explained
+
+Below is the complete reference guide for every essential file in this repository:
+
+| File | Description & Role |
+| :--- | :--- |
+| **`checkpoints/unity_ppo_model.zip`** | **Pre-trained Phase 1 Base PPO Model Checkpoint**. Used as the baseline model for new patients. |
+| **`unity_schema.py`** | Data structures (`UnitySession`, `UnityTrial`, `DifficultyAtTrial`) parsing the exact JSON telemetry schema from Unity. |
+| **`unity_env.py`** | Gymnasium environment (`UnityARRehabEnv`) mapping Unity trial data to a 15-dimensional observation space and 4-action space. |
+| **`unity_dataset.py`** | Observation vector extraction & `predict_next_difficulty(session_json_str)` prediction function. |
+| **`unity_continuous_api.py`** | **Phase 2 Continuous Adaptive Live API Server**. Serves recommendations and fine-tunes policy weights live after every trial. |
+| **`train_unity.py`** | **Phase 1 Base Model Training Script**. Trains PPO, DQN, and A2C baseline models offline. |
+| **`rehab_ar_simulation.ipynb`** | **Phase 1 Jupyter Notebook**. Executable notebook for pre-training the base model and visualizing performance. |
+| **`sample_unity_session.json`** | Sample Unity session log (`fa8a4ce9` for patient `demo01`) used for testing and inference verification. |
+| **`RL_ARCHITECTURE_GUIDE.md`** | Comprehensive research guide detailing MDP components, mathematical formulas, and Unity AR Foundation setup. |
+| **`app.py`** | Interactive Streamlit Web Application with drag-and-drop Unity JSON prediction and 3D visualization. |
+| **`requirements.txt`** | Python dependencies (`gymnasium`, `stable-baselines3`, `torch`, `flask`, `streamlit`, `matplotlib`, `plotly`, `pandas`). |
+
+---
+
+## 📊 15-Dimensional State Vector & 4 Dynamic Actions
+
+### 15-Dimensional Observation Vector ($\mathbf{s}_t$)
+- `obs[0]`: Previous trial hit status ($1.0$ or $0.0$)
+- `obs[1]`: Reaction time normalized ($\text{RT} / 30,000\text{ms}$)
+- `obs[2]`: Gaze angle offset normalized ($\text{gaze} / 90^\circ$)
+- `obs[3]`: Hemifield indicator ($1.0$ if neglected side, $0.0$ if non-neglected)
+- `obs[4]`: Current target speed ($0.2 - 0.8\text{ m/s}$)
+- `obs[5]`: Current target eccentricity ($5^\circ - 35^\circ$)
+- `obs[6]`: Current target distance ($0.8 - 2.5\text{ m}$)
+- `obs[7]`: Target count normalized (fixed at 3)
+- `obs[8]`: Time limit normalized ($\text{time\_limit\_s} / 45.0\text{s}$)
+- `obs[9]`: Rolling hit rate (last 5 trials)
+- `obs[10]`: Rolling average reaction time (last 5 trials)
+- `obs[11]`: Consecutive timeout failure count
+- `obs[12]`: Neglect side indicator ($1.0$ for Left Neglect, $0.0$ for Right Neglect)
+- `obs[13]`: Session progress ratio ($\text{trial\_idx} / 60$)
+- `obs[14]`: Accumulated cognitive fatigue estimate
+
+### 4 Dynamic RL Actions ($\mathbf{a}_t$)
+1. **`speed`**: $[0.2, 0.8]\text{ m/s}$ (Movement speed challenge)
+2. **`eccentricity_deg`**: $[5^\circ, 35^\circ]$ (Scanning angle into neglected hemifield)
+3. **`distance_m`**: $[0.8, 2.5]\text{ m}$ (3D AR depth distance)
+4. **`time_limit_s`**: $[10.0, 45.0]\text{ s}$ (Dynamic trial timeout window)
+*(Note: `target_count` is kept as a fixed constant = 3 for visual clutter control)*
+
+---
+
+## 🚀 Quick Start Guide
+
+### 1. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Pre-train Phase 1 Base Model (Offline)
+```bash
+python train_unity.py
+```
+*Outputs: `checkpoints/unity_ppo_model.zip`*
+
+### 3. Launch Phase 2 Continuous Adaptive Server (Live Unity Session)
+```bash
+python unity_continuous_api.py
+```
+*Server runs on `http://localhost:5000/predict_and_adapt`*
+
+### 4. Launch Streamlit Web UI
 ```bash
 python -m streamlit run app.py
-```
-
-### 3. Run Full RL Training & Benchmark Evaluation
-```bash
-python run_all.py
-```
-
----
-
-## 📲 Unity AR Integration & Telemetry Export
-
-The Streamlit web application (`app.py`) includes a dedicated export tab that outputs target coordinates $(x, y, z)$ and rehabilitation metrics in standard JSON format ready for consumption by Unity AR headsets (Meta Quest, HoloLens, iOS ARKit):
-
-```json
-{
-  "sessionId": "REHAB_USN_42",
-  "patientProperties": {
-    "neglectSeverity": 0.7,
-    "walkingSpeed": 0.8,
-    "fovDegrees": 120.0,
-    "fatigue": 0.05
-  },
-  "digitalPetSpawnTarget": {
-    "cellId": 182,
-    "unityPosition": {
-      "x": 1.75,
-      "y": 0.0,
-      "z": 4.25
-    }
-  },
-  "sessionMetrics": {
-    "reward": 28.5,
-    "leftExplorationPercentage": 45.2,
-    "totalExplorationPercentage": 62.0,
-    "timeToPetSeconds": 24.5,
-    "rehabilitationSuccess": true
-  }
-}
 ```

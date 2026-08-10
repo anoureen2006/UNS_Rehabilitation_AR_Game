@@ -4,6 +4,9 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
-checkpoints/*.zip
-outputs/st_*.png
-outputs/st_*.html
+outputs/
+checkpoints/ppo_rehab_model.zip
+checkpoints/dqn_rehab_model.zip
+checkpoints/a2c_rehab_model.zip
+checkpoints/unity_dqn_model.zip
+checkpoints/unity_a2c_model.zip
