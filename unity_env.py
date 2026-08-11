@@ -66,10 +66,16 @@ class UnityARRehabEnv(gym.Env):
     def action_to_difficulty(self, action) -> DifficultyAtTrial:
         """Decodes integer or continuous action into Unity DifficultyAtTrial object."""
         if self.use_continuous_action:
-            speed = float(np.clip(action[0], 0.2, 0.8))
-            ecc = float(np.clip(action[1], 5.0, 35.0))
-            dist = float(np.clip(action[2], 0.8, 2.5))
-            tlimit = float(np.clip(action[3], 10.0, 45.0))
+            # Properly scale continuous actions from [-1.0, 1.0] to parameter ranges
+            act0 = float(np.clip(action[0], -1.0, 1.0))
+            act1 = float(np.clip(action[1], -1.0, 1.0))
+            act2 = float(np.clip(action[2], -1.0, 1.0))
+            act3 = float(np.clip(action[3], -1.0, 1.0))
+
+            speed = float(0.2 + 0.5 * (act0 + 1.0) * (0.8 - 0.2))
+            ecc = float(5.0 + 0.5 * (act1 + 1.0) * (35.0 - 5.0))
+            dist = float(0.8 + 0.5 * (act2 + 1.0) * (2.5 - 0.8))
+            tlimit = float(10.0 + 0.5 * (act3 + 1.0) * (45.0 - 10.0))
         else:
             act_idx = int(action) % self.num_actions
             
@@ -124,20 +130,20 @@ class UnityARRehabEnv(gym.Env):
         tlimit = diff.time_limit_s
         
         if is_neglected:
-            # Perceptual probability equation: drops as eccentricity, speed, distance, and fatigue increase
-            ecc_penalty = 0.75 * (ecc / 30.0) ** 1.3
-            speed_penalty = 0.35 * (spd / 0.5)
-            fatigue_penalty = 0.25 * self.fatigue
+            # Realistic clinical perceptual probability equation
+            ecc_penalty = 0.45 * (ecc / 30.0)
+            speed_penalty = 0.20 * (spd / 0.5)
+            fatigue_penalty = 0.15 * self.fatigue
             percept_prob = 1.0 - (self.neglect_severity * ecc_penalty) - speed_penalty - fatigue_penalty
-            percept_prob = float(np.clip(percept_prob, 0.05, 0.92))
+            percept_prob = float(np.clip(percept_prob, 0.20, 0.95))
         else:
-            percept_prob = float(np.clip(0.95 - 0.2 * self.fatigue, 0.40, 0.95))
+            percept_prob = float(np.clip(0.98 - 0.15 * self.fatigue, 0.50, 0.98))
 
         hit = bool(self.rng.random() < percept_prob)
 
         if hit:
-            base_rt = 400.0 + 150.0 * (ecc / 10.0) + 200.0 * spd + 900.0 * self.fatigue
-            rt_ms = float(np.clip(self.rng.normal(base_rt, 180.0), 300.0, tlimit * 1000.0 - 50.0))
+            base_rt = 350.0 + 80.0 * (ecc / 10.0) + 100.0 * spd + 400.0 * self.fatigue
+            rt_ms = float(np.clip(self.rng.normal(base_rt, 120.0), 250.0, tlimit * 1000.0 - 50.0))
             gaze_angle = float(self.rng.normal(ecc * 0.6, 2.0))
             self.consecutive_timeouts = 0
         else:
