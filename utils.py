@@ -1,7 +1,7 @@
 """
 utils.py
-Utility functions for seed management, metric calculations, coordinate mapping,
-and evaluation policy methods (Fixed, Random, Rule-based).
+Utility functions for multi-seed statistical evaluation, scientific metrics computation,
+coordinate mapping, and benchmark policy methods (Fixed, Random, Rule-based).
 """
 
 import numpy as np
@@ -18,30 +18,68 @@ def set_seeds(seed=42):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-def calculate_metrics(episode_logs):
+def compute_adaptation_smoothness(eccentricities, e_min=5.0, e_max=35.0):
     """
-    Aggregates performance metrics across evaluation episodes.
-    Calculates: Cumulative Reward, Success Rate %, Timeout Rate %,
-    Difficulty Progression, and Adaptation Stability.
+    Computes Adaptation Smoothness (AS):
+    AS = 1 - (1 / (T - 1)) * sum(|e_t - e_{t-1}| / (e_max - e_min))
+    Returns 1.0 for perfectly smooth adaptation, lower for erratic staircasing.
     """
-    if not episode_logs:
+    if len(eccentricities) < 2:
+        return 1.0
+    
+    diffs = np.abs(np.diff(eccentricities))
+    range_e = max(1.0, e_max - e_min)
+    normalized_changes = diffs / range_e
+    mean_change = np.mean(normalized_changes)
+    
+    return float(np.clip(1.0 - mean_change, 0.0, 1.0))
+
+def calculate_multiseed_metrics(all_seed_results):
+    """
+    Computes multi-seed statistics (Mean, SD, 95% Confidence Interval) across independent runs.
+    
+    Parameters:
+        all_seed_results (list of dicts): Logs across independent random seeds.
+        
+    Returns:
+        metrics (dict): Scientific metrics for publication tables.
+    """
+    if not all_seed_results:
         return {}
         
-    rewards = [ep["reward"] for ep in episode_logs]
-    steps = [ep["step_count"] for ep in episode_logs]
-    successes = [ep["success"] for ep in episode_logs]
-    timeouts = [ep.get("timeout_rate", 0.0) for ep in episode_logs]
-    eccentricities = [ep.get("mean_eccentricity", 10.0) for ep in episode_logs]
-    ecc_stds = [ep.get("std_eccentricity", 0.0) for ep in episode_logs]
+    rewards = [res["avg_reward"] for res in all_seed_results]
+    successes = [res["success_rate_pct"] for res in all_seed_results]
+    timeouts = [res["timeout_rate_pct"] for res in all_seed_results]
+    max_eccs = [res["max_eccentricity_deg"] for res in all_seed_results]
+    delta_eccs = [res["delta_eccentricity_deg"] for res in all_seed_results]
+    smoothness_scores = [res["adaptation_smoothness"] for res in all_seed_results]
+
+    N = len(all_seed_results)
     
+    def mean_sd_ci(data):
+        mean_val = float(np.mean(data))
+        sd_val = float(np.std(data, ddof=1)) if len(data) > 1 else 0.0
+        ci_val = float(1.96 * sd_val / np.sqrt(N)) if len(data) > 1 else 0.0
+        return mean_val, sd_val, ci_val
+
+    r_mean, r_sd, r_ci = mean_sd_ci(rewards)
+    s_mean, s_sd, s_ci = mean_sd_ci(successes)
+    t_mean, t_sd, t_ci = mean_sd_ci(timeouts)
+    e_mean, e_sd, e_ci = mean_sd_ci(max_eccs)
+    de_mean, de_sd, de_ci = mean_sd_ci(delta_eccs)
+    as_mean, as_sd, as_ci = mean_sd_ci(smoothness_scores)
+
     return {
-        "avg_cumulative_reward": float(np.mean(rewards)),
-        "std_cumulative_reward": float(np.std(rewards)),
-        "success_rate_pct": float(np.mean(successes) * 100.0),
-        "timeout_rate_pct": float(np.mean(timeouts) * 100.0),
-        "mean_eccentricity_deg": float(np.mean(eccentricities)),
-        "adaptation_stability_std": float(np.mean(ecc_stds)), # Lower std = smoother adaptation
-        "avg_session_steps": float(np.mean(steps))
+        "mean_reward": r_mean,
+        "sd_reward": r_sd,
+        "ci95_reward": r_ci,
+        "reward_str": f"{r_mean:.1f} ± {r_sd:.1f}",
+        "success_rate_pct": s_mean,
+        "timeout_rate_pct": t_mean,
+        "max_eccentricity_deg": e_mean,
+        "delta_eccentricity_deg": de_mean,
+        "adaptation_smoothness": as_mean,
+        "smoothness_str": f"{as_mean:.3f} ± {as_sd:.3f}"
     }
 
 class RuleBasedPolicy:
@@ -83,7 +121,6 @@ class RuleBasedPolicy:
             self.current_dist = float(np.clip(self.current_dist - 0.2, 0.8, 2.0))
             self.current_tlimit = float(np.clip(self.current_tlimit + 5.0, 10.0, 45.0))
 
-        # Convert to discrete action index or difficulty
         return DifficultyAtTrial(
             speed=self.current_speed,
             eccentricity_deg=self.current_ecc,

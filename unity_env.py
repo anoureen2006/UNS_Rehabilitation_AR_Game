@@ -124,20 +124,24 @@ class UnityARRehabEnv(gym.Env):
         tlimit = diff.time_limit_s
         
         if is_neglected:
-            percept_prob = 1.0 - (self.neglect_severity * 0.8 * (ecc / 30.0) * (spd / 0.5)) - (0.3 * self.fatigue)
-            percept_prob = float(np.clip(percept_prob, 0.05, 0.95))
+            # Perceptual probability equation: drops as eccentricity, speed, distance, and fatigue increase
+            ecc_penalty = 0.75 * (ecc / 30.0) ** 1.3
+            speed_penalty = 0.35 * (spd / 0.5)
+            fatigue_penalty = 0.25 * self.fatigue
+            percept_prob = 1.0 - (self.neglect_severity * ecc_penalty) - speed_penalty - fatigue_penalty
+            percept_prob = float(np.clip(percept_prob, 0.05, 0.92))
         else:
-            percept_prob = float(np.clip(0.95 - 0.2 * self.fatigue, 0.40, 0.98))
+            percept_prob = float(np.clip(0.95 - 0.2 * self.fatigue, 0.40, 0.95))
 
         hit = bool(self.rng.random() < percept_prob)
 
         if hit:
-            base_rt = 400.0 + 120.0 * (ecc / 10.0) + 150.0 * spd + 800.0 * self.fatigue
-            rt_ms = float(np.clip(self.rng.normal(base_rt, 150.0), 300.0, tlimit * 1000.0))
+            base_rt = 400.0 + 150.0 * (ecc / 10.0) + 200.0 * spd + 900.0 * self.fatigue
+            rt_ms = float(np.clip(self.rng.normal(base_rt, 180.0), 300.0, tlimit * 1000.0 - 50.0))
             gaze_angle = float(self.rng.normal(ecc * 0.6, 2.0))
             self.consecutive_timeouts = 0
         else:
-            # Timeout at the action's specific time limit
+            # Timeout at trial time limit
             rt_ms = tlimit * 1000.0
             gaze_angle = float(self.rng.normal(ecc * 1.5, 5.0))
             self.consecutive_timeouts += 1

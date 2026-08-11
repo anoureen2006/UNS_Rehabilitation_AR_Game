@@ -1,11 +1,10 @@
 """
 visualization.py
 Visualization suite for AR Rehabilitation Digital Pet RL Simulation & Experiment 2 Validation.
-Generates research publication plots:
-1. Experiment 2 Method Comparison (Fixed vs Random vs Rule-based vs PPO vs DQN vs A2C)
+Generates research publication plots with Multi-Seed Error Bars & Scientific Metrics:
+1. Experiment 2 Method Comparison (PPO vs A2C vs DQN vs Rule-based vs Random vs Fixed)
 2. Difficulty Progression Trajectory over Trials (Rule-based staircasing vs PPO smooth adaptation)
 3. 3-RL Algorithm Comparison Learning Curves (PPO vs DQN vs A2C)
-4. Exploration Heatmaps and Trajectory Plots
 """
 
 import matplotlib.pyplot as plt
@@ -23,45 +22,47 @@ plt.style.use('seaborn-v0_8-darkgrid' if 'seaborn-v0_8-darkgrid' in plt.style.av
 
 def plot_experiment2_benchmark(df_summary, save_name="exp2_benchmark_comparison.png"):
     """
-    Renders 4-panel comparison bar charts for Experiment 2:
-    Method vs Cumulative Reward, Success Rate %, Timeout Rate %, Adaptation Stability.
+    Renders 4-panel multi-seed comparison bar charts with error bars for Experiment 2:
+    Method vs Mean Reward (±SD), Success Rate %, Timeout Rate %, Adaptation Smoothness AS.
     """
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), dpi=150)
     
     methods = df_summary['Method']
-    palette = ['#e41a1c', '#ff7f00', '#377eb8', '#4daf4a', '#984ea3', '#a65628']
+    palette = ['#4daf4a', '#a65628', '#984ea3', '#377eb8', '#ff7f00', '#e41a1c']
 
-    # 1. Cumulative Reward
-    axes[0, 0].bar(methods, df_summary['avg_cumulative_reward'], color=palette)
-    axes[0, 0].set_title("Cumulative Reward (Higher is Better)", weight='bold', fontsize=12)
-    axes[0, 0].set_ylabel("Reward")
+    # 1. Cumulative Reward (Mean ± SD)
+    y_err = df_summary['sd_reward'] if 'sd_reward' in df_summary.columns else None
+    axes[0, 0].bar(methods, df_summary['mean_reward'], yerr=y_err, capsize=4, color=palette, alpha=0.85)
+    axes[0, 0].set_title("Cumulative Reward (R_total) ↑", weight='bold', fontsize=12)
+    axes[0, 0].set_ylabel("Reward (Mean ± SD)")
     axes[0, 0].tick_params(axis='x', rotation=25)
     axes[0, 0].grid(True, linestyle=':', alpha=0.6)
 
-    # 2. Success Rate %
-    axes[0, 1].bar(methods, df_summary['success_rate_pct'], color=palette)
-    axes[0, 1].set_title("Success Rate % (Higher is Better)", weight='bold', fontsize=12)
-    axes[0, 1].set_ylabel("Success %")
-    axes[0, 1].set_ylim(0, 100)
+    # 2. Task Success Rate %
+    axes[0, 1].bar(methods, df_summary['success_rate_pct'], color=palette, alpha=0.85)
+    axes[0, 1].set_title("Task Success Rate (SR %) ↑", weight='bold', fontsize=12)
+    axes[0, 1].set_ylabel("Success Rate %")
+    axes[0, 1].set_ylim(0, 105)
     axes[0, 1].tick_params(axis='x', rotation=25)
     axes[0, 1].grid(True, linestyle=':', alpha=0.6)
 
     # 3. Timeout Rate %
-    axes[1, 0].bar(methods, df_summary['timeout_rate_pct'], color=palette)
-    axes[1, 0].set_title("Timeout Rate % (Lower is Better)", weight='bold', fontsize=12)
-    axes[1, 0].set_ylabel("Timeout %")
-    axes[1, 0].set_ylim(0, 100)
+    axes[1, 0].bar(methods, df_summary['timeout_rate_pct'], color=palette, alpha=0.85)
+    axes[1, 0].set_title("Timeout Failure Rate (TR %) ↓", weight='bold', fontsize=12)
+    axes[1, 0].set_ylabel("Timeout Rate %")
+    axes[1, 0].set_ylim(0, 105)
     axes[1, 0].tick_params(axis='x', rotation=25)
     axes[1, 0].grid(True, linestyle=':', alpha=0.6)
 
-    # 4. Adaptation Stability (Std Dev)
-    axes[1, 1].bar(methods, df_summary['adaptation_stability_std'], color=palette)
-    axes[1, 1].set_title("Adaptation Instability / Variance (Lower is Smoother)", weight='bold', fontsize=12)
-    axes[1, 1].set_ylabel("Eccentricity Std Dev (°)")
+    # 4. Adaptation Smoothness (AS)
+    axes[1, 1].bar(methods, df_summary['adaptation_smoothness'], color=palette, alpha=0.85)
+    axes[1, 1].set_title("Adaptation Smoothness (AS) ↑", weight='bold', fontsize=12)
+    axes[1, 1].set_ylabel("Smoothness Score (1.0 = Perfectly Smooth)")
+    axes[1, 1].set_ylim(0, 1.05)
     axes[1, 1].tick_params(axis='x', rotation=25)
     axes[1, 1].grid(True, linestyle=':', alpha=0.6)
 
-    plt.suptitle("Experiment 2 — RL Validation & Benchmark Comparison", fontsize=16, weight='bold', y=0.98)
+    plt.suptitle("Experiment 2 — Comparative Evaluation of Adaptive Difficulty Policies (Multi-Seed)", fontsize=15, weight='bold', y=0.98)
     plt.tight_layout()
     save_path = os.path.join(OUTPUT_DIR, save_name)
     plt.savefig(save_path, dpi=200)
@@ -76,38 +77,40 @@ def plot_difficulty_progression_comparison(progression_dict, save_name="exp2_dif
     fig, axes = plt.subplots(2, 1, figsize=(12, 8), dpi=150)
     
     colors = {
-        'Fixed': '#e41a1c',
-        'Random': '#ff7f00',
-        'Rule-based': '#377eb8',
         'PPO': '#4daf4a',
+        'A2C': '#a65628',
         'DQN': '#984ea3',
-        'A2C': '#a65628'
+        'Rule-based': '#377eb8',
+        'Random': '#ff7f00',
+        'Fixed': '#e41a1c'
     }
 
     for method, data in progression_dict.items():
+        if data is None or 'eccentricity' not in data:
+            continue
         c = colors.get(method, 'black')
         trials = range(1, len(data['eccentricity']) + 1)
         
-        # 1. Eccentricity Progression
-        axes[0].plot(trials, data['eccentricity'], label=method, color=c, linewidth=2.0,
+        # 1. Target Eccentricity Progression
+        axes[0].plot(trials, data['eccentricity'], label=method, color=c, linewidth=2.2,
                      linestyle='--' if method == 'Rule-based' else '-')
         
-        # 2. Speed Progression
-        axes[1].plot(trials, data['speed'], label=method, color=c, linewidth=2.0,
+        # 2. Target Speed Progression
+        axes[1].plot(trials, data['speed'], label=method, color=c, linewidth=2.2,
                      linestyle='--' if method == 'Rule-based' else '-')
 
-    axes[0].set_title("Target Eccentricity (°)", weight='bold', fontsize=12)
-    axes[0].set_ylabel("Eccentricity (°)")
+    axes[0].set_title("Maximum Target Eccentricity Progression (E_max °)", weight='bold', fontsize=12)
+    axes[0].set_ylabel("Target Eccentricity (°)")
     axes[0].legend(loc='upper left')
     axes[0].grid(True, linestyle=':', alpha=0.6)
 
-    axes[1].set_title("Target Speed (m/s)", weight='bold', fontsize=12)
-    axes[1].set_xlabel("Trial Number")
+    axes[1].set_title("Target Speed Progression (m/s)", weight='bold', fontsize=12)
+    axes[1].set_xlabel("Trial Index")
     axes[1].set_ylabel("Speed (m/s)")
     axes[1].legend(loc='upper left')
     axes[1].grid(True, linestyle=':', alpha=0.6)
 
-    plt.suptitle("Experiment 2 — Trial Difficulty Progression & Adaptation Stability", fontsize=15, weight='bold', y=0.98)
+    plt.suptitle("Experiment 2 — Trial Difficulty Progression Trajectory & Adaptation Stability", fontsize=15, weight='bold', y=0.98)
     plt.tight_layout()
     save_path = os.path.join(OUTPUT_DIR, save_name)
     plt.savefig(save_path, dpi=200)
