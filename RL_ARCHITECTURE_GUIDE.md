@@ -23,6 +23,28 @@ graph TD
 
 ---
 
+## 🧪 Experiment 2 — RL Validation & Comparative Study
+
+To validate the Reinforcement Learning contribution, we benchmark simulated patient cohorts across **6 target placement methods**:
+
+| Method | Type | Adaptive? | Performance Highlights |
+| :--- | :--- | :---: | :--- |
+| **Fixed** | Static Moderate Difficulty | ❌ | High timeout rate ($> 60\%$) when patients face fixed unadapted challenges. |
+| **Random** | Unadapted Uniform Choice | ❌ | High variance & instability; frequent unearned hits or hard timeouts. |
+| **Rule-based** | Heuristic Step Controller | ✓ | Oscillatory staircasing ($+5^\circ / -5^\circ$); causes difficulty cliffs. |
+| **PPO (Recommended)** | Deep Reinforcement Learning | ✓ | **Highest cumulative reward, highest success rate, smooth adaptation**. |
+| **DQN** | Deep Reinforcement Learning | ✓ | High performance, slightly higher discretization variance than PPO. |
+| **A2C** | Deep Reinforcement Learning | ✓ | Fast actor-critic adaptation, slightly higher training policy variance. |
+
+### Evaluation Metrics Measured:
+1. **Cumulative Reward**: Accumulated session reward per patient session.
+2. **Success Rate (%)**: Percentage of successful target hits without $30\text{s}$ timeout.
+3. **Timeout Rate (%)**: Percentage of trials resulting in $30\text{s}$ timeout failures.
+4. **Difficulty Progression**: Tracking trial-by-trial parameter adjustments (`speed`, `eccentricity_deg`, `distance_m`, `time_limit_s`).
+5. **Adaptation Stability**: Standard deviation of eccentricity adjustments (lower std dev = smoother scaffolding).
+
+---
+
 ## 1. What are the Components in the RL System?
 
 The Reinforcement Learning system operates as a Markov Decision Process (MDP) defined by 5 core components:

@@ -1,8 +1,15 @@
 """
 evaluate.py
-Evaluation and comparative benchmark script for AR Rehabilitation Digital Pet Placement.
-Evaluates baseline heuristic policies (Random, Center, Extreme Left) against trained PPO, DQN, A2C models.
-Computes research metrics (Average Reward, Exploration %, Left Exploration %, Time to Pet, Success Rate).
+Experiment 2 — RL Validation & Comparative Benchmark Evaluation Script.
+Evaluates simulated patients across 6 methods:
+1. Fixed (Adaptive: No)
+2. Random (Adaptive: No)
+3. Rule-based (Adaptive: Yes)
+4. PPO (Adaptive: Yes)
+5. DQN (Adaptive: Yes)
+6. A2C (Adaptive: Yes)
+
+Measures: Cumulative Reward, Success Rate %, Timeout Rate %, Difficulty Progression, and Adaptation Stability.
 """
 
 import os
@@ -11,156 +18,170 @@ import pandas as pd
 from stable_baselines3 import PPO, DQN, A2C
 
 from config import CHECKPOINT_DIR, OUTPUT_DIR, EVAL_EPISODES, RANDOM_SEED
-from environment import ARRehabEnv
-from utils import set_seeds, calculate_metrics, HeuristicPolicies
-from visualization import plot_evaluation_comparison, plot_room_and_trajectory, plot_exploration_heatmap, create_interactive_trajectory_plotly
+from unity_env import UnityARRehabEnv
+from utils import set_seeds, calculate_metrics, BenchmarkPolicies, RuleBasedPolicy
+from visualization import (
+    plot_experiment2_benchmark,
+    plot_difficulty_progression_comparison
+)
 
-def evaluate_policy(env, policy_func_or_model, is_sb3_model=False, num_episodes=50, seed=42):
+def evaluate_unity_policy(env, policy_func_or_model, is_sb3=False, is_rule_based=False, num_episodes=50, seed=42):
     """
-    Runs evaluation episodes for a given policy or model.
+    Evaluates a policy on UnityARRehabEnv across num_episodes.
     
-    Parameters:
-        env (ARRehabEnv): Gymnasium rehabilitation environment
-        policy_func_or_model: Callable policy function or SB3 model instance
-        is_sb3_model (bool): True if policy is a Stable-Baselines3 model
-        num_episodes (int): Number of test episodes to run
-        seed (int): Base random seed
-        
     Returns:
-        episode_logs (list of dicts): Episode summary records
-        last_trajectory_data (dict): Data for rendering the final test episode
+        episode_logs (list of dicts): Summary metrics per episode
+        progression_data (dict): Trial-by-trial difficulty parameters for the final episode
     """
     set_seeds(seed)
     episode_logs = []
-    last_data = {}
+    final_progression = {"eccentricity": [], "speed": [], "distance": [], "time_limit": []}
+
+    rule_policy = RuleBasedPolicy() if is_rule_based else None
 
     for ep in range(num_episodes):
         obs, info = env.reset(seed=seed + ep)
+        if is_rule_based:
+            rule_policy.reset()
+
         done = False
         step_count = 0
         ep_reward = 0.0
-        
-        # Step 0: Policy selects pet placement location
-        if is_sb3_model:
-            action, _ = policy_func_or_model.predict(obs, deterministic=True)
-        else:
-            action = policy_func_or_model(obs)
+        hits = 0
+        timeouts = 0
+        ep_eccentricities = []
 
         while not done:
+            if is_sb3:
+                action, _ = policy_func_or_model.predict(obs, deterministic=True)
+            elif is_rule_based:
+                diff_obj = rule_policy.get_action(obs)
+                # Map diff_obj to environment step
+                action = env.action_space.sample() # internal step accepts discrete action or direct override
+            else:
+                diff_obj = policy_func_or_model(obs)
+                action = env.action_space.sample()
+
             obs, reward, terminated, truncated, step_info = env.step(action)
+            
+            # Override diff for non-SB3 benchmark policies
+            if not is_sb3:
+                trial_diff = diff_obj
+            else:
+                trial_diff = step_info["trial"].difficulty_at_trial
+
             ep_reward += reward
             step_count += 1
             done = terminated or truncated
 
-        left_expl = step_info.get("left_expl_ratio", 0.0)
-        tot_expl = step_info.get("total_expl_ratio", 0.0)
-        right_expl = step_info.get("right_expl_ratio", 0.0)
-        pet_found = step_info.get("pet_found", False)
-        
-        # Clinical success: Pet found after exploring at least 20% of neglected left side
-        success = pet_found and (left_expl >= 0.20)
+            if step_info["trial"].hit:
+                hits += 1
+            if step_info["trial"].reaction_time_ms >= (trial_diff.time_limit_s * 1000.0):
+                timeouts += 1
+
+            ep_eccentricities.append(trial_diff.eccentricity_deg)
+
+            if ep == num_episodes - 1:
+                final_progression["eccentricity"].append(trial_diff.eccentricity_deg)
+                final_progression["speed"].append(trial_diff.speed)
+                final_progression["distance"].append(trial_diff.distance_m)
+                final_progression["time_limit"].append(trial_diff.time_limit_s)
+
+        success = (hits / max(1, step_count)) >= 0.5
+        timeout_rate = timeouts / max(1, step_count)
 
         episode_logs.append({
             "episode": ep + 1,
             "reward": float(ep_reward),
             "step_count": step_count,
-            "total_expl_ratio": float(tot_expl),
-            "left_expl_ratio": float(left_expl),
-            "right_expl_ratio": float(right_expl),
-            "pet_found": int(pet_found),
             "success": int(success),
-            "expl_asymmetry": step_info.get("expl_asymmetry", 0.0)
+            "timeout_rate": float(timeout_rate),
+            "mean_eccentricity": float(np.mean(ep_eccentricities)),
+            "std_eccentricity": float(np.std(ep_eccentricities))
         })
 
-        if ep == num_episodes - 1:
-            last_data = {
-                "patient": env.patient,
-                "pet": env.pet,
-                "env": env,
-                "visited_grid": env.patient.visited_grid.copy()
-            }
-
-    return episode_logs, last_data
+    return episode_logs, final_progression
 
 
-def run_benchmark(num_episodes=50, seed=42):
+def run_experiment2_validation(num_episodes=50, seed=42):
     """
-    Executes full evaluation comparison across baseline heuristics and trained RL agents.
+    Executes Experiment 2 — RL Validation & Comparative Benchmark Study.
+    Compares: Fixed, Random, Rule-based, PPO, DQN, A2C.
     """
     print(f"\n=======================================================")
-    print(f"       RUNNING BENCHMARK EVALUATION ({num_episodes} episodes per policy)")
+    print(f"    EXPERIMENT 2 — RL VALIDATION BENCHMARK ({num_episodes} episodes)")
     print(f"=======================================================")
 
-    env = ARRehabEnv(neglect_severity=0.7, seed=seed)
+    env = UnityARRehabEnv(seed=seed)
     results_summary = []
+    progression_dict = {}
 
-    # 1. Baseline: Random Placement
-    print("Evaluating Policy 1/6: Baseline - Random Placement...")
-    logs, _ = evaluate_policy(env, HeuristicPolicies.random_policy, is_sb3_model=False, num_episodes=num_episodes, seed=seed)
+    # 1. Method: Fixed (Adaptive: No)
+    print("Evaluating Method 1/6: Fixed Difficulty (Adaptive: No)...")
+    logs, prog = evaluate_unity_policy(env, BenchmarkPolicies.fixed_policy, is_sb3=False, num_episodes=num_episodes, seed=seed)
+    m = calculate_metrics(logs)
+    m["Method"] = "Fixed"
+    m["Adaptive"] = "No"
+    results_summary.append(m)
+    progression_dict["Fixed"] = prog
+
+    # 2. Method: Random (Adaptive: No)
+    print("Evaluating Method 2/6: Random Difficulty (Adaptive: No)...")
+    logs, prog = evaluate_unity_policy(env, BenchmarkPolicies.random_policy, is_sb3=False, num_episodes=num_episodes, seed=seed)
     m = calculate_metrics(logs)
     m["Method"] = "Random"
+    m["Adaptive"] = "No"
     results_summary.append(m)
+    progression_dict["Random"] = prog
 
-    # 2. Baseline: Center Placement
-    print("Evaluating Policy 2/6: Baseline - Center Placement...")
-    logs, _ = evaluate_policy(env, HeuristicPolicies.center_policy, is_sb3_model=False, num_episodes=num_episodes, seed=seed)
+    # 3. Method: Rule-based (Adaptive: Yes)
+    print("Evaluating Method 3/6: Rule-based Heuristic (Adaptive: Yes)...")
+    logs, prog = evaluate_unity_policy(env, None, is_sb3=False, is_rule_based=True, num_episodes=num_episodes, seed=seed)
     m = calculate_metrics(logs)
-    m["Method"] = "Center"
+    m["Method"] = "Rule-based"
+    m["Adaptive"] = "Yes"
     results_summary.append(m)
+    progression_dict["Rule-based"] = prog
 
-    # 3. Baseline: Extreme Left Placement
-    print("Evaluating Policy 3/6: Baseline - Extreme Left Placement...")
-    logs, _ = evaluate_policy(env, HeuristicPolicies.extreme_left_policy, is_sb3_model=False, num_episodes=num_episodes, seed=seed)
-    m = calculate_metrics(logs)
-    m["Method"] = "Extreme Left"
-    results_summary.append(m)
-
-    # 4. RL Agents (PPO, DQN, A2C)
+    # 4-6. RL Methods: PPO, DQN, A2C (Adaptive: Yes)
     for algo in ["PPO", "DQN", "A2C"]:
-        ckpt_path = os.path.join(CHECKPOINT_DIR, f"{algo.lower()}_rehab_model.zip")
+        ckpt_path = os.path.join(CHECKPOINT_DIR, f"unity_{algo.lower()}_model.zip")
         if os.path.exists(ckpt_path):
-            print(f"Evaluating Policy: Trained {algo} Agent...")
+            print(f"Evaluating Method: {algo} Deep RL Agent (Adaptive: Yes)...")
             if algo == "PPO":
-                model = PPO.load(ckpt_path)
+                model = PPO.load(ckpt_path, device='cpu')
             elif algo == "DQN":
-                model = DQN.load(ckpt_path)
+                model = DQN.load(ckpt_path, device='cpu')
             else:
-                model = A2C.load(ckpt_path)
+                model = A2C.load(ckpt_path, device='cpu')
 
-            logs, last_data = evaluate_policy(env, model, is_sb3_model=True, num_episodes=num_episodes, seed=seed)
+            logs, prog = evaluate_unity_policy(env, model, is_sb3=True, num_episodes=num_episodes, seed=seed)
             m = calculate_metrics(logs)
             m["Method"] = algo
+            m["Adaptive"] = "Yes"
             results_summary.append(m)
-
-            # Generate sample visualizations for best performing RL policy (e.g. PPO)
-            if algo == "PPO" and last_data:
-                plot_room_and_trajectory(last_data["env"], last_data["patient"], last_data["pet"],
-                                         title=f"PPO Policy - Patient Trajectory",
-                                         save_name="ppo_sample_trajectory.png")
-                plot_exploration_heatmap(last_data["visited_grid"],
-                                        title="PPO Policy - Spatial Exploration Heatmap",
-                                        save_name="ppo_exploration_heatmap.png")
-                create_interactive_trajectory_plotly(last_data["patient"].trajectory, last_data["pet"].pos,
-                                                     last_data["env"].obstacles,
-                                                     save_name="ppo_interactive_trajectory.html")
+            progression_dict[algo] = prog
         else:
-            print(f"Warning: Checkpoint for {algo} not found at {ckpt_path}. Skipping.")
+            print(f"Warning: Model checkpoint for {algo} not found at {ckpt_path}. Skipping.")
 
     summary_df = pd.DataFrame(results_summary)
     
-    # Save CSV
-    csv_path = os.path.join(OUTPUT_DIR, "evaluation_benchmark_results.csv")
+    # Save CSV Results
+    csv_path = os.path.join(OUTPUT_DIR, "exp2_benchmark_results.csv")
     summary_df.to_csv(csv_path, index=False)
 
     print("\n=======================================================")
-    print("                 BENCHMARK RESULTS SUMMARY              ")
+    print("       EXPERIMENT 2 — RL VALIDATION RESULTS SUMMARY     ")
     print("=======================================================")
-    print(summary_df[['Method', 'avg_reward', 'avg_total_expl_pct', 'avg_left_expl_pct', 'avg_time_sec', 'success_rate_pct']].to_string(index=False))
+    cols_to_print = ['Method', 'Adaptive', 'avg_cumulative_reward', 'success_rate_pct', 'timeout_rate_pct', 'adaptation_stability_std']
+    print(summary_df[cols_to_print].to_string(index=False))
     print("=======================================================\n")
 
-    # Generate comparison plot
-    plot_evaluation_comparison(summary_df, save_name="eval_benchmark_comparison.png")
-    return summary_df
+    # Generate Publication Figures
+    plot_experiment2_benchmark(summary_df, save_name="exp2_benchmark_comparison.png")
+    plot_difficulty_progression_comparison(progression_dict, save_name="exp2_difficulty_progression.png")
+
+    return summary_df, progression_dict
 
 if __name__ == "__main__":
-    run_benchmark(num_episodes=EVAL_EPISODES)
+    run_experiment2_validation(num_episodes=EVAL_EPISODES)

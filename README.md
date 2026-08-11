@@ -4,9 +4,21 @@ This repository contains the complete Reinforcement Learning (RL) controller des
 
 ---
 
-## 🎯 System Architecture Overview
+## 🎯 System Architecture Overview & Experiment 2
 
 The RL system acts as an **Automated Adaptive Physical Therapist**. It ingests Unity session telemetry JSON logs and dynamically adjusts target difficulty parameters for each trial to stretch the patient's neglected visual field while avoiding 30s timeouts and cognitive fatigue.
+
+### 🧪 Experiment 2 — RL Validation Benchmark
+To prove the RL contribution, we benchmark simulated patients across **6 target placement methods**:
+
+| Method | Type | Adaptive? |
+| :--- | :--- | :---: |
+| **Fixed** | Static Moderate Difficulty | ❌ |
+| **Random** | Unadapted Uniform Choice | ❌ |
+| **Rule-based** | Heuristic Step Controller | ✓ |
+| **PPO (Recommended)** | Deep Reinforcement Learning | ✓ |
+| **DQN** | Deep Reinforcement Learning | ✓ |
+| **A2C** | Deep Reinforcement Learning | ✓ |
 
 ```mermaid
 graph TD
@@ -43,9 +55,10 @@ Below is the complete reference guide for every essential file in this repositor
 | **`unity_dataset.py`** | Observation vector extraction & `predict_next_difficulty(session_json_str)` prediction function. |
 | **`unity_continuous_api.py`** | **Phase 2 Continuous Adaptive Live API Server**. Serves recommendations and fine-tunes policy weights live after every trial. |
 | **`train_unity.py`** | **Phase 1 Base Model Training Script**. Trains PPO, DQN, and A2C baseline models offline. |
-| **`rehab_ar_simulation.ipynb`** | **Phase 1 Jupyter Notebook**. Executable notebook for pre-training the base model and visualizing performance. |
+| **`evaluate.py`** | **Experiment 2 Benchmark Evaluation Script**. Evaluates Fixed, Random, Rule-based, PPO, DQN, A2C on simulated patients. |
+| **`rehab_ar_simulation.ipynb`** | **Phase 1 & Experiment 2 Jupyter Notebook**. Executable notebook for pre-training, Experiment 2 benchmark, and research figures. |
 | **`sample_unity_session.json`** | Sample Unity session log (`fa8a4ce9` for patient `demo01`) used for testing and inference verification. |
-| **`RL_ARCHITECTURE_GUIDE.md`** | Comprehensive research guide detailing MDP components, mathematical formulas, and Unity AR Foundation setup. |
+| **`RL_ARCHITECTURE_GUIDE.md`** | Comprehensive research guide detailing MDP components, Experiment 2 specs, and Unity AR Foundation setup. |
 | **`app.py`** | Interactive Streamlit Web Application with drag-and-drop Unity JSON prediction and 3D visualization. |
 | **`requirements.txt`** | Python dependencies (`gymnasium`, `stable-baselines3`, `torch`, `flask`, `streamlit`, `matplotlib`, `plotly`, `pandas`). |
 
@@ -86,11 +99,10 @@ Below is the complete reference guide for every essential file in this repositor
 pip install -r requirements.txt
 ```
 
-### 2. Pre-train Phase 1 Base Model (Offline)
+### 2. Run Experiment 2 RL Validation Study
 ```bash
-python train_unity.py
+python evaluate.py
 ```
-*Outputs: `checkpoints/unity_ppo_model.zip`*
 
 ### 3. Launch Phase 2 Continuous Adaptive Server (Live Unity Session)
 ```bash
