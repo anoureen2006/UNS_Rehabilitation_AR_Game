@@ -3,19 +3,14 @@ using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 
 /// <summary>
-/// Central AR bootstrap. Attach this to a GameObject that also has
-/// ARSession, ARPlaneManager, ARRaycastManager, and ARAnchorManager
-/// components (see the Unity setup guide for exact hierarchy).
-///
-/// Other scripts should NOT talk to ARPlaneManager directly -- they should
-/// subscribe to OnPlanesChanged here. This keeps "when do we refresh
-/// candidate points" centralized in one place instead of scattered
-/// per-frame polling across scripts.
+/// Central AR bootstrap.
+/// Compatible with AR Foundation 6+.
 /// </summary>
 public class ARSessionManager : MonoBehaviour
 {
     public static ARSessionManager Instance { get; private set; }
 
+    [Header("AR Components")]
     [SerializeField] private ARPlaneManager planeManager;
     [SerializeField] private ARRaycastManager raycastManager;
     [SerializeField] private ARAnchorManager anchorManager;
@@ -35,31 +30,46 @@ public class ARSessionManager : MonoBehaviour
             Destroy(gameObject);
             return;
         }
+
         Instance = this;
 
-        if (planeManager == null) planeManager = GetComponent<ARPlaneManager>();
-        if (raycastManager == null) raycastManager = GetComponent<ARRaycastManager>();
-        if (anchorManager == null) anchorManager = GetComponent<ARAnchorManager>();
-        if (arCamera == null) arCamera = Camera.main;
+        if (planeManager == null)
+            planeManager = GetComponent<ARPlaneManager>();
+
+        if (raycastManager == null)
+            raycastManager = GetComponent<ARRaycastManager>();
+
+        if (anchorManager == null)
+            anchorManager = GetComponent<ARAnchorManager>();
+
+        if (arCamera == null)
+            arCamera = Camera.main;
     }
 
     private void OnEnable()
     {
         if (planeManager != null)
-            planeManager.planesChanged += HandlePlanesChanged;
+        {
+            planeManager.trackablesChanged.AddListener(
+                HandlePlanesChanged
+            );
+        }
     }
 
     private void OnDisable()
     {
         if (planeManager != null)
-            planeManager.planesChanged -= HandlePlanesChanged;
+        {
+            planeManager.trackablesChanged.RemoveListener(
+                HandlePlanesChanged
+            );
+        }
     }
 
-    private void HandlePlanesChanged(ARPlanesChangedEventArgs args)
+    private void HandlePlanesChanged(
+        ARTrackablesChangedEventArgs<ARPlane> args
+    )
     {
-        // Only fires when planes are actually added/updated/removed --
-        // NOT every frame. This is the correct place to trigger a
-        // candidate-point refresh, never in an Update() loop.
         OnPlanesChanged?.Invoke();
     }
 }
